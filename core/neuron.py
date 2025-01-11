@@ -28,6 +28,15 @@ class Message(BaseModel):
     reply: Optional[dict] = {}
     persistant: bool = False
 
+
+class NeuronDefaultArgs(BaseModel):
+    args: dict = {"prompt": "Hello world"}
+    run_kargs: dict = {}  # Define call arguments
+    predecessors: Dict[str, Optional[Union[Message, ResetMessage]]] = {}  # Update type hinting for predecessors
+    triggers: List[str] = []  # Change triggers to list of strings
+    is_terminal: bool = False
+    persistant: bool = False
+
 class Neuron(BaseModel):
     """A neuron in a computational graph.
 
@@ -40,12 +49,12 @@ class Neuron(BaseModel):
         is_terminal (bool): Indicates if the neuron is a terminal node.
     """
     id: str
-    args: dict = {"prompt": "Hello world"}
-    run_kargs: dict = {}  # Define call arguments
-    predecessors: Dict[str, Optional[Union[Message, ResetMessage]]] = {}  # Update type hinting for predecessors
-    triggers: List[str] = []  # Change triggers to list of strings
-    is_terminal: bool = False
-    persistant: bool = False
+    args: dict = NeuronDefaultArgs().args
+    run_kargs: dict = NeuronDefaultArgs().run_kargs
+    predecessors: Dict[str, Optional[Union[Message, ResetMessage]]] = NeuronDefaultArgs().predecessors
+    triggers: List[str] = NeuronDefaultArgs().triggers
+    is_terminal: bool = NeuronDefaultArgs().is_terminal
+    persistant: bool = NeuronDefaultArgs().persistant
 
     def forward(self, messages:list, args: dict, run_kargs: dict, run_context: dict) -> Union[Message, ResetMessage, None]:
         """Defines the execution logic for the neuron node.
@@ -111,13 +120,20 @@ class Neuron(BaseModel):
     
     @property
     def config(self) -> dict:
-        """Returns the neuron configuration as a dictionary.
+        """Returns the neuron configuration as a dictionary, excluding elements with default values.
 
         Returns:
-            dict: The neuron configuration with predecessors set to None.
+            dict: The neuron configuration with predecessors set to None and default values excluded.
         """
+        default_args = NeuronDefaultArgs()
         config_dict = self.dict()
         config_dict['predecessors'] = {key: None for key in config_dict['predecessors']}
+        
+        # Remove elements with default values
+        for key, default_value in default_args.dict().items():
+            if config_dict[key] == default_value:
+                del config_dict[key]
+        
         return config_dict
 
     def save_config(self, file_path: str) -> None:

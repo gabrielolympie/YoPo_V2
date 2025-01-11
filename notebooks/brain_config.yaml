@@ -1,0 +1,25 @@
+name: TestBrain
+neurons:
+  neuron1:
+    args:
+      prompt: Hello, Neuron 1!
+    id: neuron1
+    run_kargs:
+      temperature: 0.7
+  neuron2:
+    args:
+      prompt: Hello, Neuron 2!
+    id: neuron2
+    run_kargs:
+      temperature: 0.5
+  neuron3:
+    args:
+      prompt: Hello, Neuron 3!
+    id: neuron3
+    is_terminal: true
+    run_kargs:
+      temperature: 0.3
+synapses:
+- neuron1 -> neuron2
+- neuron2 -> neuron3
+- neuron1 -> neuron3
