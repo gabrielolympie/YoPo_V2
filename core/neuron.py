@@ -40,10 +40,11 @@ class Neuron(BaseModel):
     triggers: List[str] = []  # Change triggers to list of strings
     is_terminal: bool = False
 
-    def forward(self, args: dict, run_kargs: dict, run_context: dict) -> Union[Message, ResetMessage, None]:
+    def forward(self, messages:list, args: dict, run_kargs: dict, run_context: dict) -> Union[Message, ResetMessage, None]:
         """Defines the execution logic for the neuron node.
 
         Args:
+            messages (list): Messages are the main entrypoint, they are define in standard {'role':'user','content':'content'} way.
             args (dict): The arguments passed to the neuron (e.g., prompt, query).
             run_kargs (dict): The runtime arguments for the neuron (e.g., temperature, top_p).
             run_context (dict): The context in which the neuron is running (results of previous nodes).
@@ -53,10 +54,11 @@ class Neuron(BaseModel):
         """
         pass
     
-    def fire(self, trigger_str: str) -> Union[Message, ResetMessage, None]:
+    def fire(self, messages:list, trigger_str: str) -> Union[Message, ResetMessage, None]:
         """Fires the neuron based on the given trigger string.
 
         Args:
+            messages (list): Messages are the main entrypoint, they are define in standard {'role':'user','content':'content'} way.
             trigger_str (str): A string representing the trigger condition.
 
         Returns:
@@ -67,7 +69,7 @@ class Neuron(BaseModel):
         for elt in trigger_str.split(','):
             self.predecessors[elt]=None
             
-        return self.forward(args=self.args, run_kargs=self.run_kargs, run_context=run_context)
+        return self.forward(messages=messages, args=self.args, run_kargs=self.run_kargs, run_context=run_context)
         
     def ready_to_fire(self) -> Union[str, bool]:
         """Checks if any trigger is ready to fire based on the predecessors.
