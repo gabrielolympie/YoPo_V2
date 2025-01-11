@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, validator
 from typing import Dict, Optional, List, Union
+import time
+import random
 import uuid
 import yaml
 
@@ -14,6 +16,16 @@ class ResetMessage(BaseModel):
         id (str): A unique identifier for the reset message.
     """
     id: str
+    emitter_id: str
+    
+class InactiveMessage(BaseModel):
+    """An inactive message, that says the neuron does not want to sent its results to its predecessors.
+
+    Attributes:
+        id (str): A unique identifier for the reset message.
+    """
+    id: str
+    emitter_id: str   
 
 class Message(BaseModel):
     """A message containing arguments and an optional output.
@@ -24,16 +36,18 @@ class Message(BaseModel):
         output (Optional[dict]): The output of the neuron, if available.
     """
     id: str
+    emitter_id: str
     args: dict = {"prompt": "Hello world"}
     reply: Optional[dict] = {}
     persistant: bool = False
 
 
-class NeuronDefaultArgs(BaseModel):
+class NeuronArgs(BaseModel):
     args: dict = {"prompt": "Hello world"}
     run_kargs: dict = {}  # Define call arguments
     predecessors: Dict[str, Optional[Union[Message, ResetMessage]]] = {}  # Update type hinting for predecessors
     triggers: List[str] = []  # Change triggers to list of strings
+    is_entrypoint: bool = []
     is_terminal: bool = False
     persistant: bool = False
 
@@ -49,12 +63,13 @@ class Neuron(BaseModel):
         is_terminal (bool): Indicates if the neuron is a terminal node.
     """
     id: str
-    args: dict = NeuronDefaultArgs().args
-    run_kargs: dict = NeuronDefaultArgs().run_kargs
-    predecessors: Dict[str, Optional[Union[Message, ResetMessage]]] = NeuronDefaultArgs().predecessors
-    triggers: List[str] = NeuronDefaultArgs().triggers
-    is_terminal: bool = NeuronDefaultArgs().is_terminal
-    persistant: bool = NeuronDefaultArgs().persistant
+    args: dict = NeuronArgs().args
+    run_kargs: dict = NeuronArgs().run_kargs
+    predecessors: Dict[str, Optional[Union[Message, ResetMessage]]] = NeuronArgs().predecessors
+    triggers: List[str] = NeuronArgs().triggers
+    is_entrypoint: bool = NeuronArgs().is_entrypoint
+    is_terminal: bool = NeuronArgs().is_terminal
+    persistant: bool = NeuronArgs().persistant
 
     def forward(self, messages:list, args: dict, run_kargs: dict, run_context: dict) -> Union[Message, ResetMessage, None]:
         """Defines the execution logic for the neuron node.
@@ -68,7 +83,8 @@ class Neuron(BaseModel):
         Returns:
             reply (dict): the dictionnary of outputs
         """
-        return Message(id=str(uuid.uuid4()), args=args, reply={'content':'ran'}, persistant=False)
+        time.sleep(random.uniform(0,1))
+        return Message(id=str(uuid.uuid4()), emitter_id=self.id, args=args, reply={'content':'ran'}, persistant=False) ## This is just for test, all neuron must be redefined
     
     def fire(self, messages:list, trigger_str: str) -> Union[Message, ResetMessage, None]:
         """Fires the neuron based on the given trigger string.
@@ -80,13 +96,15 @@ class Neuron(BaseModel):
         Returns:
             Union[Message, ResetMessage, None]: The result of the neuron's forward method.
         """
-        run_context = {elt: self.predecessors[elt].copy() for elt in trigger_str.split(',')}
-
-        for elt in trigger_str.split(','):
-            if self.predecessors[elt] is not None:
+        triggers=trigger_str.split(',')
+        
+        run_context={}
+        for elt in triggers:
+            if elt in self.predecessors:
+                run_context[elt]=self.predecessors[elt].copy()
                 if not(self.predecessors[elt].persistant):
                     self.predecessors[elt]=None
-                       
+                    
         return self.forward(messages=messages, args=self.args, run_kargs=self.run_kargs, run_context=run_context)
         
     def ready_to_fire(self) -> Union[str, bool]:
@@ -95,14 +113,20 @@ class Neuron(BaseModel):
         Returns:
             Union[str, bool]: A trigger string if ready to fire, otherwise False.
         """
+        if len(self.predecessors) == 0:
+            return False
+        
         triggers = self.triggers.copy()
+
         if len(triggers) == 0:
             triggers = [','.join(list(self.predecessors.keys()))]
         
         for trigger_str in triggers:
             predecessor_ids = trigger_str.split(',')
+            
             if all(self.predecessors[predecessor_id] is not None for predecessor_id in predecessor_ids):
                 return trigger_str
+            
         return False
     
     def update_predecessor(self, message: Union[Message, ResetMessage]) -> None:
@@ -112,9 +136,9 @@ class Neuron(BaseModel):
             message (Union[Message, ResetMessage]): The message to update the predecessor with.
         """
         if isinstance(message, Message):
-            self.predecessors[message.id] = message
+            self.predecessors[message.emitter_id] = message
         elif isinstance(message, ResetMessage):
-            self.predecessors[message.id] = None
+            self.predecessors[message.emitter_id] = None
         else:
             raise ValueError("Input must be an instance of Message or ResetMessage.")
     
@@ -125,11 +149,10 @@ class Neuron(BaseModel):
         Returns:
             dict: The neuron configuration with predecessors set to None and default values excluded.
         """
-        default_args = NeuronDefaultArgs()
+        default_args = NeuronArgs()
         config_dict = self.dict()
         config_dict['predecessors'] = {key: None for key in config_dict['predecessors']}
         
-        # Remove elements with default values
         for key, default_value in default_args.dict().items():
             if config_dict[key] == default_value:
                 del config_dict[key]
