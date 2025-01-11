@@ -2,6 +2,10 @@ from pydantic import BaseModel, Field, validator
 from typing import Dict, Optional, List, Union
 import yaml
 
+class Synapse(BaseModel):
+    sender_neuron_id:str
+    receiver_neuron_id:str
+
 class ResetMessage(BaseModel):
     """A message to reset the state of a neuron.
 
