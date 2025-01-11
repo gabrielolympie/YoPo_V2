@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, validator
 from typing import Dict, Optional, List, Union
+import uuid
 import yaml
 
 class Synapse(BaseModel):
@@ -25,6 +26,7 @@ class Message(BaseModel):
     id: str
     args: dict = {"prompt": "Hello world"}
     reply: Optional[dict] = {}
+    persistant: bool = False
 
 class Neuron(BaseModel):
     """A neuron in a computational graph.
@@ -43,6 +45,7 @@ class Neuron(BaseModel):
     predecessors: Dict[str, Optional[Union[Message, ResetMessage]]] = {}  # Update type hinting for predecessors
     triggers: List[str] = []  # Change triggers to list of strings
     is_terminal: bool = False
+    persistant: bool = False
 
     def forward(self, messages:list, args: dict, run_kargs: dict, run_context: dict) -> Union[Message, ResetMessage, None]:
         """Defines the execution logic for the neuron node.
@@ -54,9 +57,9 @@ class Neuron(BaseModel):
             run_context (dict): The context in which the neuron is running (results of previous nodes).
 
         Returns:
-            Union[Message, ResetMessage, None]: The output of the neuron, which can be a Message to update the buffer of next nodes, a ResetMessage to reset it, or None to not pass the output.
+            reply (dict): the dictionnary of outputs
         """
-        pass
+        return Message(id=str(uuid.uuid4()), args=args, reply={'content':'ran'}, persistant=False)
     
     def fire(self, messages:list, trigger_str: str) -> Union[Message, ResetMessage, None]:
         """Fires the neuron based on the given trigger string.
@@ -71,8 +74,10 @@ class Neuron(BaseModel):
         run_context = {elt: self.predecessors[elt].copy() for elt in trigger_str.split(',')}
 
         for elt in trigger_str.split(','):
-            self.predecessors[elt]=None
-            
+            if self.predecessors[elt] is not None:
+                if not(self.predecessors[elt].persistant):
+                    self.predecessors[elt]=None
+                       
         return self.forward(messages=messages, args=self.args, run_kargs=self.run_kargs, run_context=run_context)
         
     def ready_to_fire(self) -> Union[str, bool]:
