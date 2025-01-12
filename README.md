@@ -1,31 +1,12 @@
-# Neural Network Framework
+# Neural LLM
 
-This is a neural network framework designed to facilitate the creation of complex neural networks. The framework consists of several components, including neurons, steps, activations, and brains.
+This is a neural LLM framework designed to facilitate the creation of complex networks. The framework consists of several components, including neurons, steps, activations, and brains.
 
 ## Installation
 
 To install the project, run the following command:
 ```bash
 pip install -r requirements.txt
-```
-
-## Usage
-
-To use the project, you need to create a brain and add neurons to it. Here is an example of how to create a brain and add a neuron:
-```python
-from core.brain import Brain
-from core.neuron import Neuron
-
-brain = Brain(
-    name="my_brain",
-    neurons=[neuron_1, neuron_2, neuron_3],
-    max_working_memory_size=10000,
-    working_memory_overflow_strategy="fifo",
-    workers=8,
-    timeout=120,
-    iteration_delay=0.5,
-    max_concurrent_fires=100,
-)
 ```
 
 ## Components
