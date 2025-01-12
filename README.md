@@ -1,30 +1,68 @@
-# YoPo_V2
-You Only Prompt Once V2 - Declarative Language for Prompting Graph Workflows
+# Neural Network Framework
 
-## Overview
-YoPo_V2 is a framework designed to facilitate the creation and management of computational graphs for prompt-based workflows. It allows users to define and execute complex workflows declaratively, where each node in the graph (referred to as a "neuron") can process inputs, generate outputs, and interact with other neurons based on specified triggers.
+This is a neural network framework designed to facilitate the creation of complex neural networks. The framework consists of several components, including neurons, steps, activations, and brains.
 
-## Key Components
+## Installation
 
-### Neuron
-A `Neuron` is a fundamental unit in the computational graph. Each neuron has the following attributes:
-- **id**: A unique identifier for the neuron.
-- **args**: Arguments passed to the neuron, such as prompts or queries.
-- **run_kargs**: Runtime arguments for the neuron, such as temperature or top_p.
-- **predecessors**: A dictionary of predecessor neurons or reset messages.
-- **triggers**: A list of trigger strings that determine when the neuron should execute.
-- **is_terminal**: A boolean indicating if the neuron is a terminal node.
-
-### Message and ResetMessage
-- **Message**: Represents a message containing arguments and an optional output.
-- **ResetMessage**: A special type of message used to reset the state of a neuron.
-
-### Methods
-- **forward**: Defines the execution logic for the neuron. It takes arguments, runtime arguments, and a runtime context, and returns a `Message`, `ResetMessage`, or `None`.
-- **config**: Returns the neuron configuration as a dictionary, with predecessors set to `None`.
-- **load_config**: Loads the neuron configuration from a YAML file.
+To install the project, run the following command:
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
-To use YoPo_V2, define your computational graph by creating instances of `Neuron` and configuring their attributes and triggers. You can then execute the graph by calling the `forward` method on the neurons, passing the necessary arguments and context.
 
-For more detailed usage and examples, refer to the documentation or the example files provided with the project.
+To use the project, you need to create a brain and add neurons to it. Here is an example of how to create a brain and add a neuron:
+```python
+from core.brain import Brain
+from core.neuron import Neuron
+
+brain = Brain(
+    name="my_brain",
+    neurons=[neuron_1, neuron_2, neuron_3],
+    max_working_memory_size=10000,
+    working_memory_overflow_strategy="fifo",
+    workers=8,
+    timeout=120,
+    iteration_delay=0.5,
+    max_concurrent_fires=100,
+)
+```
+
+## Components
+
+The framework consists of the following components:
+
+* **Neuron**: A neuron represents a node in the neural network. It has attributes such as id, description, predecessors, successors, triggers, step function, activation function, buffer, and clock.
+* **Step**: A step represents a single unit of processing in a conversation flow. It has attributes such as str_input and step_args.
+* **Activation**: An activation represents a mechanism for routing replies to neuron successors. It has attributes such as type and reply.
+* **Brain**: A brain represents a neural network that can execute conversations. It has attributes such as name, neurons, max_working_memory_size, working_memory_overflow_strategy, workers, timeout, iteration_delay, and max_concurrent_fires.
+
+## Examples
+
+Here is an example of how to create a neuron and add it to a brain:
+```python
+neuron = Neuron(
+    id="neuron_1",
+    description="the description of the node",
+    predecessors={"predecessor_1":"description_1", "predecessor_2":"description_2"},
+    successors={"successor_1": "description_1", "successor_2": "description_2"},
+    triggers=[trigger_1, trigger_2],
+    step=step_function,
+    activation=activation_function,
+)
+
+brain = Brain(
+    name="my_brain",
+    neurons=[neuron],
+    max_working_memory_size=10000,
+    working_memory_overflow_strategy="fifo",
+    workers=8,
+    timeout=120,
+    iteration_delay=0.5,
+    max_concurrent_fires=100,
+)
+```
+
+## Contributing
+
+To contribute to the project, please submit a pull request with your changes. You can also report issues on the issues page.

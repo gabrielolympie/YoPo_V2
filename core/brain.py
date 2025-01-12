@@ -1,239 +1,138 @@
-import networkx as nx
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import yaml
+from typing import Dict, List
+from core.neuron import Neuron
+from core.st_memory import WorkingMemory
 import time
-import os
+import logging
 
-from core.neuron import Neuron, Synapse, Message, InactiveMessage, ResetMessage
+logger = logging.getLogger(__name__)
 
 class Brain:
-    """
-    A class representing a brain with neurons and synapses.
-
-    Attributes:
-        name (str): The name of the brain.
-        neurons (dict): A dictionary of neurons in the brain.
-        synapses (list): A list of synapses in the brain.
-        entry_nodes (list): A list of entry nodes in the brain.
-        terminal_nodes (list): A list of terminal nodes in the brain.
-        workers (int): The number of workers for the brain.
-        timeout (int): The timeout for the brain.
-        clock_frequency (float): The clock frequency for the brain.
-    """
-
-    def __init__(self, name, workers=8, timeout=120, clock_frequency=0.1):
+    def __init__(
+        self, 
+        name: str, 
+        neurons: List[Neuron], 
+        max_working_memory_size: int = int(1e5),
+        working_memory_overflow_strategy: str = 'fifo', 
+        workers: int = 8,
+        timeout: int = 120,
+        iteration_delay: float = 0.5,
+        max_concurrent_fires: int = 100,
+    ):
         """
-        Initializes a Brain object.
+        Initializes the Brain instance.
 
         Args:
             name (str): The name of the brain.
-            workers (int, optional): The number of workers for the brain. Defaults to 8.
-            timeout (int, optional): The timeout for the brain. Defaults to 120.
-            clock_frequency (float, optional): The clock frequency for the brain. Defaults to 0.1.
+            neurons (List[Neuron]): The list of neurons in the brain.
+            max_working_memory_size (int, optional): The maximum size of the working memory. Defaults to 1e5.
+            working_memory_overflow_strategy (str, optional): The strategy to use when the working memory overflows. Defaults to 'fifo'.
+            workers (int, optional): The number of worker threads. Defaults to 8.
+            timeout (int, optional): The timeout for the brain execution. Defaults to 120.
+            iteration_delay (float, optional): The delay between iterations. Defaults to 0.5.
+            max_concurrent_fires (int, optional): The maximum number of concurrent fires. Defaults to 100.
         """
         self.name = name
-        self.neurons = {}
-        self.synapses = []
-        self.entry_nodes = []
-        self.terminal_nodes = []
-        
+        self.neurons = {neuron.id: neuron for neuron in neurons}
+        self.max_working_memory_size = max_working_memory_size
+        self.working_memory_overflow_strategy = working_memory_overflow_strategy
         self.workers = workers
         self.timeout = timeout
-        self.clock_frequency = clock_frequency
-        
-        self.build()
-        
-    def run(self, messages):
+        self.iteration_delay = iteration_delay
+        self.max_concurrent_fires = max_concurrent_fires
+        self.working_memory = WorkingMemory(max_working_memory_size=self.max_working_memory_size, working_memory_overflow_strategy=self.working_memory_overflow_strategy)
+        self.active_fires = 0
+
+    def run(self, conversation):
         """
-        Runs the brain with the given messages.
+        Runs the brain execution synchronously.
 
         Args:
-            messages: The messages to run the brain with.
+            conversation: The conversation to execute. Conversation a list of dict [{'role':'user','content':'Hello World'}]
 
         Yields:
-            Message: The messages produced by the brain.
+            List: The list of messages each time a process is finished. They are yielded as Message class
         """
-        assert len(self.entry_nodes) + len(self.terminal_nodes) > 0, "The graph must have at least one entry point or one terminal node"
-        
-        executor = ThreadPoolExecutor(max_workers=32)
+        # Create a thread pool executor with the specified number of workers
+        executor = ThreadPoolExecutor(max_workers=self.workers)
         start_time = time.time()
         futures = []
-        
-        for entry_node in self.entry_nodes:
-            futures.append(executor.submit(self.neurons[entry_node].fire, messages, ""))
-        
-        cond = True
-        while cond:
-            for future in futures[:]:
-                if future.done():
-                    result = future.result()
-                    if not isinstance(result, InactiveMessage):
-                        if isinstance(result, Message):
-                            yield result
-                        if self.neurons[result.emitter_id].is_terminal:
-                            cond = False
-                        
-                        for successor in self.successors(result.emitter_id):
-                            self.neurons[successor].update_predecessor(result)
-                    futures.remove(future)
-                    
-            time.sleep(self.clock_frequency)
-            for neuron in self.neurons:
-                should_fire = self.neurons[neuron].ready_to_fire()    
-                if should_fire is not False:
-                    futures.append(executor.submit(self.neurons[neuron].fire, messages, should_fire))
-                    
-            if time.time() - start_time > self.timeout:
-                cond = False
-                yield "Stopped due to the duration exceeding the set timeout"
 
-    def successors(self, node_id):
-        """
-        Gets the successors of a node.
+        try:
+            # Submit the entry nodes for execution
+            for entry_node in self.entry_nodes:
+                # Wait if the maximum number of concurrent fires is reached
+                while self.active_fires >= self.max_concurrent_fires:
+                    time.sleep(0.1)
+                
+                self.active_fires += 1
+                # Submit the fire_with_retry task to the executor
+                futures.append(executor.submit(self.neurons[entry_node].fire_with_retry, conversation, []))
 
-        Args:
-            node_id: The ID of the node.
+            # Continuously check for completed futures and new neurons to fire
+            while True:
+                # Check for timeout
+                if time.time() - start_time > self.timeout:
+                    logger.warning(f"Brain {self.name} execution timed out")
+                    break
 
-        Returns:
-            list: The successors of the node.
-        """
-        return [receiver for sender, receiver in self.synapses if sender == node_id]    
-    
-    def build(self):
-        """
-        Builds the brain graph.
-        """
-        self.graph = nx.DiGraph()
+                # Process completed futures
+                for future in futures[:]:
+                    if future.done():
+                        try:
+                            result = future.result()
+                            
+                            if result:
+                                neuron, reply, messages = result
 
-        for neuron_id, neuron in self.neurons.items():
-            self.graph.add_node(neuron_id, **neuron.config)  # Use neuron.config to avoid saving predecessors
+                                ## Yield the reply in textual format
+                                yield reply
+                                
+                                ## Update the ran neuron
+                                self.neurons[neuron.id] = neuron
+                                    
+                                for message in messages:
+                                    # Receive the message and append it to the working memory
+                                    self.neurons[message.receiver_id].receive(message)
+                                    self.working_memory.append(message)
+                                        
+                        except Exception as e:
+                            logger.error(f"Error processing future: {str(e)}")
+                        finally:
+                            # Decrement the active fires count and remove the future
+                            self.active_fires -= 1
+                            futures.remove(future)
 
-        for sender_neuron_id, receiver_neuron_id in self.synapses:
-            self.graph.add_edge(sender_neuron_id, receiver_neuron_id)  # Add synapses as directed edges to the graph
+                # Check for new neurons to fire
+                for neuron_id, neuron in self.neurons.items():
+                    should_fire = neuron.should_fire()
+                    if should_fire is not None and self.active_fires < self.max_concurrent_fires:
+                        # Increment the active fires count and submit the fire_with_retry task
+                        self.active_fires += 1
+                        futures.append(executor.submit(neuron.fire_with_retry, conversation, should_fire, self.working_memory))
 
-        self.entry_nodes = [neuron_id for neuron_id, neuron in self.neurons.items() if neuron.is_entrypoint]
-        self.terminal_nodes = [neuron_id for neuron_id, neuron in self.neurons.items() if neuron.is_terminal]
-        
-    def add_neuron(self, neuron):
-        """
-        Adds a neuron to the brain.
+                # Wait for the iteration delay
+                time.sleep(self.iteration_delay)
 
-        Args:
-            neuron (Neuron): The neuron to add.
+                # Break if no active futures and no neurons ready to fire
+                if not futures and not any(n.should_fire() for n in self.neurons.values()):
+                    break
 
-        Raises:
-            ValueError: If the neuron is not an instance of Neuron.
-        """
-        if not isinstance(neuron, Neuron):
-            raise ValueError("Node must be an instance of Neuron.")
-        self.neurons[neuron.id] = neuron
-        self.build()
-
-    def add_synapse(self, synapse):
-        """
-        Adds a synapse to the brain.
-
-        Args:
-            synapse (Synapse): The synapse to add.
-
-        Raises:
-            ValueError: If the synapse is not an instance of Synapse.
-        """
-        if not isinstance(synapse, Synapse):
-            raise ValueError("Synapse must be an instance of Synapse.")
-        self.synapses.append((synapse.sender_neuron_id, synapse.receiver_neuron_id))
-        self.build()
-
-    def remove_neuron(self, id):
-        """
-        Removes a neuron from the brain.
-
-        Args:
-            id: The ID of the neuron to remove.
-        """
-        self.synapses = [synapse for synapse in self.synapses if id not in synapse]
-        self.neurons = {neuron_id: neuron for neuron_id, neuron in self.neurons.items() if neuron_id != id}
-        self.build()
-
-    def remove_synapse(self, sender_neuron_id, receiver_neuron_id):
-        """
-        Removes a synapse from the brain.
-
-        Args:
-            sender_neuron_id: The ID of the sender neuron.
-            receiver_neuron_id: The ID of the receiver neuron.
-        """
-        self.synapses = [synapse for synapse in self.synapses if synapse != (sender_neuron_id, receiver_neuron_id)]
-        self.build()
+        except Exception as e:
+            logger.error(f"Error in brain execution: {str(e)}")
+            raise
+        finally:
+            # Shutdown the executor
+            executor.shutdown(wait=True)
 
     @property
-    def config(self):
+    def entry_nodes(self):
         """
-        Gets the brain configuration.
+        Gets the entry nodes of the brain.
 
         Returns:
-            dict: The brain configuration.
+            List[str]: The list of entry node IDs.
         """
-        neuron_configs = {neuron_id: neuron.config for neuron_id, neuron in self.neurons.items()}
-        formatted_synapses = [f"{sender} -> {receiver}" for sender, receiver in self.synapses]
-        return {
-            "name": self.name,
-            "workers": self.workers,
-            "timeout": self.timeout,
-            "neurons": neuron_configs,
-            "synapses": formatted_synapses,
-            "entry_nodes": self.entry_nodes,
-            "terminal_nodes": self.terminal_nodes
-        }
-
-    @classmethod
-    def from_config(cls, config):
-        """
-        Creates a Brain object from a configuration.
-
-        Args:
-            config (dict): The brain configuration.
-
-        Returns:
-            Brain: The created Brain object.
-        """
-        brain = cls(config["name"])
-        for neuron_id, neuron_config in config["neurons"].items():
-            neuron = Neuron(**neuron_config)
-            brain.add_neuron(neuron)
-        for synapse_str in config["synapses"]:
-            sender_neuron_id, receiver_neuron_id = synapse_str.split(" -> ")
-            synapse = Synapse(sender_neuron_id=sender_neuron_id, receiver_neuron_id=receiver_neuron_id)
-            brain.add_synapse(synapse)
-        return brain
-
-    def save_config(self, file_path):
-        """
-        Saves the brain configuration to a file.
-
-        Args:
-            file_path (str): The path to the file.
-        """
-        with open(file_path, 'w') as file:
-            yaml.dump(self.config, file)
-
-    @classmethod
-    def load_config(cls, file_path):
-        """
-        Loads a Brain object from a file.
-
-        Args:
-            file_path (str): The path to the file.
-
-        Returns:
-            Brain: The loaded Brain object.
-
-        Raises:
-            FileNotFoundError: If the file does not exist.
-        """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"The file {file_path} does not exist.")
-        
-        with open(file_path, 'r') as file:
-            config = yaml.safe_load(file)
-        return cls.from_config(config)
+        # Filter the neurons to get the entry nodes
+        return [neuron_id for neuron_id, neuron in self.neurons.items() if neuron.is_entrypoint]
